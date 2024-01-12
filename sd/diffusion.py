@@ -21,7 +21,57 @@ class TimeEmbedding(nn.Module):
         x = self.linear_2(x)
 
         return x
-    
+
+class UNET_ResidualBlock(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, n_time = 1200):
+        super().__init__()
+        self.groupnrom_feature = nn.GroupNorm(32, in_channels)
+        self.conv_feature = nn.Conv2d(in_channels, out_channels, kernel_size = 3, padding = 1)
+        self.linear_time = nn.Linear(n_time, out_channels)
+
+        self.groupnorm_merged = nn.GroupNorm(32, out_channels)
+        self.conv_merged = nn.Conv2d(out_channels, out_channels,kernel_size = 3, padding = 1)
+
+        if in_channels = out_channels:
+            self.residual_layer = nn.Identity()
+        else:
+            self.residual_layer = nn.Conv2d(in_channels, out_channels, kernel_size = 1, padding = 0)
+    def forward(self, feature, time):
+        # feature: (Batch_size, in_channels, height, width)
+        # time: (1, 1200)
+
+        residue = feature
+
+        feature = self.groupnrom_feature(feature)
+
+        feature = F.silu(feature)
+
+        feature = self.conv_feature(feature)
+
+        time = F.silu(time)
+
+        time = self.linear_time(time)
+
+        merged = feature + time.unsqueeze(-1).unsqueeze(-1)
+
+        merged = self.groupnorm_merged(merged)
+
+        merged = F.silu(merged)
+
+        merged = self.conv_merged(merged)
+
+        return merged + self.residual_layer(residue)
+
+class Upsample(nn.Module):
+    def __init__(self, channels: int):
+        super().__init__()
+        
+        self.conv = nn.Conv2d(channels, channels, kernel_size = 3, padding = 1)
+    def forward(self, x):
+        # x: (Batch_size, channels, height, width) -> (Batch_size, Features, height*2, width*2)
+        x = F.interpolate(x, scale_factor = 2, mode = "nearest")
+
+        return self.conv(x)
 
 class SwitchSequential(nn.Sequential):
     def forward(self, x: torch.Tensor, context: torch.Tensor, time: torch.Tensor) -> torch.Tensor:
@@ -85,26 +135,44 @@ class UNET(nn.Module):
 
             SwitchSequential(UNET_ResidualBlock(2560,1280)),
 
-            SwitchSequential(UNET_ResidualBlock(2560,1280)),Upsample(1280),
+            SwitchSequential(UNET_ResidualBlock(2560,1280),Upsample(1280)),
 
-            SwitchSequential(UNET_ResidualBlock(2560,1280)), UNET_AttentionBlock(8,160),
+            SwitchSequential(UNET_ResidualBlock(2560,1280), UNET_AttentionBlock(8,160)),
 
-            SwitchSequential(UNET_ResidualBlock(1920,1280)), UNET_AttentionBlock(8,160),Upsample(1280),
+            SwitchSequential(UNET_ResidualBlock(1920,1280), UNET_AttentionBlock(8,160),Upsample(1280)),
 
-            SwitchSequential(UNET_ResidualBlock(1920,1280)), UNET_AttentionBlock(8,80),
+            SwitchSequential(UNET_ResidualBlock(1920,1280), UNET_AttentionBlock(8,80)),
 
-            SwitchSequential(UNET_ResidualBlock(1280,640)), UNET_AttentionBlock(8,80),
+            SwitchSequential(UNET_ResidualBlock(1280,640), UNET_AttentionBlock(8,80)),
 
-            SwitchSequential(UNET_ResidualBlock(960,640)), UNET_AttentionBlock(8,80),Upsample(640),
+            SwitchSequential(UNET_ResidualBlock(960,640), UNET_AttentionBlock(8,80),Upsample(640)),
 
-            SwitchSequential(UNET_ResidualBlock(960,)), UNET_AttentionBlock(8,80),
+            SwitchSequential(UNET_ResidualBlock(960,320), UNET_AttentionBlock(8,40)),
 
-            
-            
+            SwitchSequential(UNET_ResidualBlock(640,320), UNET_AttentionBlock(8,80)),
 
-            
+            SwitchSequential(UNET_ResidualBlock(640,320), UNET_AttentionBlock(8,40)),
+
+
 
         ])
+class UNET_OutputLayer(nn.Module):
+    def __init__(self,in_channels: int, out_channels: int):
+        super().__init__()
+        self.groupnorm = nn.GroupNorm(32, in_channels)
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size = 3, padding = 1)
+
+    def forward(self, x):
+        # x: (Batch_size, 320, height / 8, height / 8)
+
+        x = self.groupnorm(x)
+
+        x = F.silu(x)
+
+        x = self.conv(x)
+
+        # (Batch_size, 4, height / 8, height / 8)
+        return x
 class Diffusion(nn.Module):
     def __init__(self)
         self.time_embedding = TimeEmbedding(320)
