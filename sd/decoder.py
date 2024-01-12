@@ -8,9 +8,35 @@ class VAE_AttentionBlock(nn.module):
 
     def __init__(self, channels: int):
         super().__init__()
-        self.attention = SelfAttention(channels)
+        
         self.groupnorm = nn.GroupNorm(32, channels)
+        self.attention = SelfAttention(1,channels)
         self.conv = nn.Conv2d(channels, channels, kernel_size = 1, padding = 0)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (Batch_size, features , height, width)
+        residue = x
+
+        n,c,h,w = x.shape
+
+        # (Batch_size, features, height,width) -> (Batch_size, features, height*width)
+        x = x.view(n,c,h*w)
+
+        # (Batch_size, features, height*width) -> (Batch_size, height*width, features)
+        x = x.transpose(-1,-2)
+
+        # (Batch_size, height*width, features) -> (Batch_size, height*width, features)
+        x = self.attention(x)
+
+        # (Batch_size, height*width, features) -> (Batch_size, features, height*width)
+        x = x.transpose(-1,-2)
+
+        # (Batch_size, features, height*width) -> (Batch_size, features, height, width)
+        x= x.view(n,c,h,w)
+
+        x += x.residue
+        return x
+
 
 
 class VAE_ResidualBlock(nn.module):
