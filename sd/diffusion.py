@@ -21,7 +21,7 @@ class TimeEmbedding(nn.Module):
         x = self.linear_2(x)
 
         return x
-
+s
 class UNET_ResidualBlock(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, n_time = 1200):
         super().__init__()
